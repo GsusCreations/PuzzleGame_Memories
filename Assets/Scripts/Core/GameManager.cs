@@ -12,7 +12,7 @@ public class GameManager : MonoBehaviour
     [Header("Progreso del Juego")]
     public List<string> collectedMessages = new List<string>();
 
-    private int currentLevelIndex = 1; // Suponiendo que el índice 1 es el primer nivel
+    private int currentLevelIndex = 0; // Suponiendo que el índice 1 es el primer nivel
 
     private void Awake()
     {

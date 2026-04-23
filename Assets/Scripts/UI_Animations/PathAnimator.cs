@@ -7,9 +7,19 @@ using DG.Tweening;
 /// </summary>
 public class PathAnimator : MonoBehaviour
 {
+    [System.Serializable]
+    public class WaypointData
+    {
+        [Tooltip("El punto hacia donde se moverá.")]
+        public Transform targetTransform;
+
+        [Tooltip("Multiplicador de escala. Escala objetivo = Escala previa * multiplicador.")]
+        public float scaleMultiplier = 1f;
+    }
+
     [Header("Configuración de la Ruta")]
-    [Tooltip("Arrastra aquí los GameObjects/Transforms vacíos que servirán como puntos de la ruta.")]
-    public List<Transform> waypoints = new List<Transform>();
+    [Tooltip("Añade los puntos de la ruta y su multiplicador de escala.")]
+    public List<WaypointData> waypoints = new List<WaypointData>();
 
     [Tooltip("Tiempo en segundos que tarda en ir de un punto a otro.")]
     public float durationPerPoint = 1f;
@@ -31,10 +41,12 @@ public class PathAnimator : MonoBehaviour
     // Guardamos la secuencia para poder detenerla si es necesario
     private Sequence pathSequence;
     private Vector3 initialPosition;
+    private Vector3 initialScale; // Guardamos la escala inicial para el Reset
 
     private void Awake()
     {
         initialPosition = transform.position;
+        initialScale = transform.localScale;
     }
 
     private void Start()
@@ -66,13 +78,22 @@ public class PathAnimator : MonoBehaviour
         // Creamos una nueva secuencia de DoTween
         pathSequence = DOTween.Sequence();
 
+        // Usamos una variable temporal para ir calculando la escala "actual" paso por paso
+        Vector3 currentStepScale = transform.localScale;
+
         // Agregamos cada punto a la secuencia
-        foreach (Transform point in waypoints)
+        foreach (WaypointData point in waypoints)
         {
-            if (point != null)
+            if (point != null && point.targetTransform != null)
             {
-                // .Append añade la animación a la cola, así va una después de la otra
-                pathSequence.Append(transform.DOMove(point.position, durationPerPoint).SetEase(easeType));
+                // scaleTarget = current scale * multiplier
+                currentStepScale = currentStepScale * point.scaleMultiplier;
+
+                // .Append añade la animación a la cola
+                pathSequence.Append(transform.DOMove(point.targetTransform.position, durationPerPoint).SetEase(easeType));
+
+                // .Join hace que el DOScale ocurra EXACTAMENTE al mismo tiempo que el DOMove anterior
+                pathSequence.Join(transform.DOScale(currentStepScale, durationPerPoint).SetEase(easeType));
             }
         }
 
@@ -105,5 +126,6 @@ public class PathAnimator : MonoBehaviour
             pathSequence.Kill();
         }
         transform.position = initialPosition;
+        transform.localScale = initialScale; // Reseteamos también la escala
     }
 }
