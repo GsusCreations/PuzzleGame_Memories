@@ -6,11 +6,12 @@ Shader "Custom/PuzzleSpriteFeedback"
         _Color ("Tint", Color) = (1,1,1,1)
         _OutlineColor ("Outline Color", Color) = (1,1,1,1)
         _OutlineIntensity ("Outline Intensity", Range(0, 1)) = 0
+        _OutlineThickness ("Outline Thickness", Range(1, 100)) = 1 // <-- NUEVA PROPIEDAD
     }
 
     SubShader
     {
-        Tags
+        Tags 
         { 
             "Queue"="Transparent" 
             "IgnoreProjector"="True" 
@@ -26,55 +27,69 @@ Shader "Custom/PuzzleSpriteFeedback"
 
         Pass
         {
-            CGPROGRAM
+            HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #include "UnityCG.cginc"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
-            struct appdata_t
+            struct Attributes
             {
-                float4 vertex   : POSITION;
-                float4 color    : COLOR;
-                float2 texcoord : TEXCOORD0;
+                float4 positionOS   : POSITION;
+                float4 color        : COLOR;
+                float2 uv           : TEXCOORD0;
             };
 
-            struct v2f
+            struct Varyings
             {
-                float4 vertex   : SV_POSITION;
-                fixed4 color    : COLOR;
-                float2 texcoord  : TEXCOORD0;
+                float4 positionHCS  : SV_POSITION;
+                float4 color        : COLOR;
+                float2 uv           : TEXCOORD0;
             };
 
-            sampler2D _MainTex;
-            fixed4 _Color;
-            fixed4 _OutlineColor;
-            float _OutlineIntensity;
+            TEXTURE2D(_MainTex);
+            SAMPLER(sampler_MainTex);
             float4 _MainTex_TexelSize;
 
-            v2f vert(appdata_t IN)
+            CBUFFER_START(UnityPerMaterial)
+                float4 _Color;
+                float4 _OutlineColor;
+                float _OutlineIntensity;
+                float _OutlineThickness; // <-- NUEVA VARIABLE
+            CBUFFER_END
+
+            Varyings vert(Attributes IN)
             {
-                v2f OUT;
-                OUT.vertex = UnityObjectToClipPos(IN.vertex);
-                OUT.texcoord = IN.texcoord;
+                Varyings OUT;
+                OUT.positionHCS = TransformObjectToHClip(IN.positionOS.xyz);
+                OUT.uv = IN.uv;
                 OUT.color = IN.color * _Color;
                 return OUT;
             }
 
-            fixed4 frag(v2f IN) : SV_Target
+            half4 frag(Varyings IN) : SV_Target
             {
-                fixed4 c = tex2D(_MainTex, IN.texcoord) * IN.color;
+                half4 c = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, IN.uv) * IN.color;
 
-                // Simple Outline logic by sampling neighbors
                 if (_OutlineIntensity > 0)
                 {
-                    float alphaUp = tex2D(_MainTex, IN.texcoord + float2(0, _MainTex_TexelSize.y)).a;
-                    float alphaDown = tex2D(_MainTex, IN.texcoord - float2(0, _MainTex_TexelSize.y)).a;
-                    float alphaRight = tex2D(_MainTex, IN.texcoord + float2(_MainTex_TexelSize.x, 0)).a;
-                    float alphaLeft = tex2D(_MainTex, IN.texcoord - float2(_MainTex_TexelSize.x, 0)).a;
+                    // Multiplicamos el tamaño del pixel por el grosor deseado
+                    float2 thickness = _MainTex_TexelSize.xy * _OutlineThickness;
 
-                    float outlineAlpha = max(max(alphaUp, alphaDown), max(alphaRight, alphaLeft));
+                    // Muestreamos en las 4 direcciones usando el nuevo grosor
+                    float alphaUp    = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, IN.uv + float2(0, thickness.y)).a;
+                    float alphaDown  = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, IN.uv - float2(0, thickness.y)).a;
+                    float alphaRight = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, IN.uv + float2(thickness.x, 0)).a;
+                    float alphaLeft  = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, IN.uv - float2(thickness.x, 0)).a;
                     
-                    // Solo aplicar outline si el pixel original es transparente
+                    // También muestreamos las diagonales para que el borde no se vea cortado en las esquinas al hacerlo más grueso
+                    float alphaUpRight   = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, IN.uv + float2(thickness.x, thickness.y)).a;
+                    float alphaUpLeft    = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, IN.uv + float2(-thickness.x, thickness.y)).a;
+                    float alphaDownRight = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, IN.uv + float2(thickness.x, -thickness.y)).a;
+                    float alphaDownLeft  = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, IN.uv + float2(-thickness.x, -thickness.y)).a;
+
+                    float outlineAlpha = max(max(max(alphaUp, alphaDown), max(alphaRight, alphaLeft)),
+                                             max(max(alphaUpRight, alphaUpLeft), max(alphaDownRight, alphaDownLeft)));
+                    
                     if (c.a < 0.1 && outlineAlpha > 0.1)
                     {
                         c = _OutlineColor;
@@ -82,10 +97,10 @@ Shader "Custom/PuzzleSpriteFeedback"
                     }
                 }
                 
-                c.rgb *= c.a; // Premultiplied alpha
+                c.rgb *= c.a; 
                 return c;
             }
-            ENDCG
+            ENDHLSL
         }
     }
 }
